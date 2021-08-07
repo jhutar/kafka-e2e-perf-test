@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="kafka_e2e_perf_test",
+    name="kafka-e2e-perf-test",
     version="0.0.1",
     maintainer="Jan Hutar",
     maintainer_email="jhutar@redhat.com",
