@@ -28,9 +28,6 @@ setuptools.setup(
         "python-snappy",
         "opl-rhcloud-perf-team @ git+https://github.com/redhat-performance/opl.git",
     ],
-    packages=[
-        "kafka_e2e_perf_test",
-    ],
     package_data={
         "kafka_e2e_perf_test": [
         ],
