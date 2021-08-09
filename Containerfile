@@ -1,4 +1,4 @@
-FROM fedora:33
+FROM registry.fedoraproject.org/fedora
 MAINTAINER "Jan Hutar" <jhutar@redhat.com>
 
 RUN dnf -y install dumb-init git-core python3-setuptools python3-pip gcc 'dnf-command(builddep)' \
