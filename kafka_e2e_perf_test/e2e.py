@@ -406,8 +406,10 @@ def do_follower(args):
 
     connection = kafka_e2e_perf_test.zmqrpc.Client(args.leader_host, args.leader_port, follower_id)
 
-    logger.debug(f"Offering capacity: 3")
-    connection.send(kafka_e2e_perf_test.zmqrpc.Message("OFFERING_CAPACITY", {"capacity": multiprocessing.cpu_count()}, follower_id))
+    if args.follower_offer_capacity == 0:
+        args.follower_offer_capacity =  multiprocessing.cpu_count()
+    logger.debug(f"Offering capacity: {args.follower_offer_capacity}")
+    connection.send(kafka_e2e_perf_test.zmqrpc.Message("OFFERING_CAPACITY", {"capacity": args.follower_offer_capacity}, follower_id))
 
     consumer_args = []
     producer_args = []
@@ -555,6 +557,8 @@ def main():
                         help='What is the leader port?')
     parser.add_argument('--leader-expect-offers', default=1, type=int,
                         help='How many offers should we expect (how many folowers)?')
+    parser.add_argument('--follower-offer-capacity', default=0, type=int,
+                        help='How many producers/consumers can this follower handle? Defaults to number of CPUs.')
     parser.add_argument('--kafka-bootstrap-host', default='ec2-18-117-240-4.us-east-2.compute.amazonaws.com',
                         help='What Kafka bootstrap server to connect to?')
     parser.add_argument('--kafka-bootstrap-port', default='9092',
