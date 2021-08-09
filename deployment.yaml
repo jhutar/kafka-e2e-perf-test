@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    app: kafka-e2e-perf-test
+  name: kafka-e2e-perf-test
+spec:
+  replicas: 0
+  selector:
+    app: kafka-e2e-perf-test
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: kafka-e2e-perf-test
+      name: kafka-e2e-perf-test
+    spec:
+      containers:
+        - image: quay.io/rhcloudperfscale/kafka-e2e-perf-test
+          command: ["sleep", "infinity"]
+          imagePullPolicy: Always
+          name: kafka-e2e-perf-test
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: "1"
+              memory: 1Gi
+          env:
+            - name: KAFKA_BOOTSTRAP_HOST
+              value: platform-mq-qa-kafka-bootstrap.platform-mq-qa.svc
+            - name: KAFKA_BOOTSTRAP_PORT
+              value: "9092"
+            - name: KAFKA_TOPIC
+              value: testing-topic-1
+            - name: TEST_PRODUCER_PROCESSES
+              value: "5"
+            - name: TEST_CONSUMER_PROCESSES
+              value: "5"
+            - name: TEST_PRODUCE_MESSAGES
+              value: "1000"
