@@ -1,5 +1,5 @@
-import time
 import logging
+import time
 
 import msgpack
 
@@ -7,6 +7,7 @@ import zmq
 
 
 logger = logging.getLogger(__name__)
+
 
 class RPCError(Exception):
     """

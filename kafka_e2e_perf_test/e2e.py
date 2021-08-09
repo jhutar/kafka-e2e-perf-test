@@ -13,15 +13,13 @@ import sys
 import time
 import uuid
 
-import json
-
-from kafka import KafkaProducer
 from kafka import KafkaConsumer
-
-import opl.date
-import opl.data
+from kafka import KafkaProducer
 
 import kafka_e2e_perf_test.zmqrpc
+
+import opl.data
+import opl.date
 
 
 def my_fromisoformat(string):
@@ -379,14 +377,14 @@ def do_leader(args):
                 consumer_log_fd.write(row + "\n")
             consumer_counter += len(follower_msg.data["data"])
             if follower_msg.data["done"]:
-                logger.debug(f"This was last batch for consumer")
+                logger.debug("This was last batch for consumer")
                 followers[follower_id]["consumers_data_transfered"] += 1
         if follower_msg.type == "PRODUCER_DATA":
             for row in follower_msg.data["data"]:
                 producer_log_fd.write(row + "\n")
             producer_counter += len(follower_msg.data["data"])
             if follower_msg.data["done"]:
-                logger.debug(f"This was last batch for producer")
+                logger.debug("This was last batch for producer")
                 followers[follower_id]["producers_data_transfered"] += 1
 
         consumers_data_transfered = sum([i["consumers_data_transfered"] for i in followers.values()])
@@ -407,7 +405,7 @@ def do_follower(args):
     connection = kafka_e2e_perf_test.zmqrpc.Client(args.leader_host, args.leader_port, follower_id)
 
     if args.follower_offer_capacity == 0:
-        args.follower_offer_capacity =  multiprocessing.cpu_count()
+        args.follower_offer_capacity = multiprocessing.cpu_count()
     logger.debug(f"Offering capacity: {args.follower_offer_capacity}")
     connection.send(kafka_e2e_perf_test.zmqrpc.Message("OFFERING_CAPACITY", {"capacity": args.follower_offer_capacity}, follower_id))
 
@@ -459,7 +457,7 @@ def do_follower(args):
         producer_processes.append(p)
 
     # Block untill all producers are ready
-    logger.info(f"Waiting for producer processes to initialize")
+    logger.info("Waiting for producer processes to initialize")
     start_producing_barrier.wait()
     connection.send(kafka_e2e_perf_test.zmqrpc.Message("PRODUCERS_INITIATED", {"initiated": len(producer_processes)}, follower_id))
 
@@ -484,7 +482,7 @@ def do_follower(args):
         consumer_processes.append(p)
 
     # Block untill all consumers are ready
-    logger.info(f"Waiting for consumer processes to initialize")
+    logger.info("Waiting for consumer processes to initialize")
     start_consuming_barrier.wait()
     connection.send(kafka_e2e_perf_test.zmqrpc.Message("CONSUMERS_INITIATED", {"initiated": len(consumer_processes)}, follower_id))
 
@@ -496,18 +494,18 @@ def do_follower(args):
             break
 
     # Start producing messages
-    logger.info(f"Signaling producer processes to start producing")
+    logger.info("Signaling producer processes to start producing")
     start_producing_event.set()
 
     # Wait for producers to finish
-    logger.info(f"Waiting for producer processes to finish")
+    logger.info("Waiting for producer processes to finish")
     for p in producer_processes:
         p.join()
         logger.info(f"Producer process {p.pid} exited with {p.exitcode}")
         connection.send(kafka_e2e_perf_test.zmqrpc.Message("PRODUCER_FINISHED", {"pid": p.pid, "exitcode": p.exitcode}, follower_id))
 
     # Wait for consumers to finish
-    logger.info(f"Waiting for consumer processes to finish")
+    logger.info("Waiting for consumer processes to finish")
     for p in consumer_processes:
         p.join()
         logger.info(f"Consumer process {p.pid} exited with {p.exitcode}")
