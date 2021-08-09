@@ -233,6 +233,99 @@ def do_results(args):
     print(f"{complete_messages_count} {stats_sent_range} {stats_published_range} {stats_output_range} {stats_consumed_range} {stats_consumed_sent_mean} {stats_consumed_sent_25th} {stats_consumed_sent_50th} {stats_consumed_sent_75th} {stats_consumed_sent_90th} {stats_consumed_sent_99th} {stats_consumed_sent_999th} {stats_consumed_sent_max}")
 
 
+def do_standalone(args):
+    logger = logging.getLogger("script-e2e.do_standalone")
+
+    consumer_args = []
+    producer_args = []
+
+    payloads_count_per_producer = int(args.test_produce_messages / args.test_producer_processes)
+    if payloads_count_per_producer * args.test_producer_processes != args.test_produce_messages:
+        logger.warning("Not all messages will be produced as requested message number is not divisable by requested producer processes")
+
+    # Prepare arguments for consumer and producer processes
+    for _ in range(args.test_consumer_processes):
+        args_this = copy.deepcopy(args)
+        consumer_args.append((args_this, args.results_consumer_log + "." + str(len(consumer_args))))
+
+    for _ in range(args.test_producer_processes):
+        args_this = copy.deepcopy(args)
+        args_this.payloads_count = payloads_count_per_producer
+        producer_args.append((args_this, args.results_producer_log + "." + str(len(producer_args))))
+
+    # This barrier serves for block main thread untill all producer
+    # processes finished initialization. The "+1" is there for a main
+    # (this one) process.
+    start_producing_barrier = multiprocessing.Barrier(len(producer_args) + 1, timeout=100)
+
+    # This event serves for letting producer processes to know they
+    # should start producing
+    start_producing_event = multiprocessing.Event()
+
+    # Start producer processes
+    logger.info(f"Starting {len(producer_args)} producer processes")
+    producer_processes = []
+    for process_args in producer_args:
+        p = multiprocessing.Process(target=do_producer_process, args=process_args + (start_producing_barrier, start_producing_event))
+        p.start()
+        producer_processes.append(p)
+
+    # Block untill all producers are ready
+    logger.info("Waiting for producer processes to initialize")
+    start_producing_barrier.wait()
+
+    # This barrier serves for block main thread untill all consumers
+    # processes finished initialization. The "+1" is there for a main
+    # (this one) process.
+    start_consuming_barrier = multiprocessing.Barrier(len(consumer_args) + 1, timeout=100)
+
+    # Start consumer processes
+    logger.info(f"Starting {len(consumer_args)} consumer processes")
+    consumer_processes = []
+    for process_args in consumer_args:
+        p = multiprocessing.Process(target=do_consumer_process, args=process_args + (start_consuming_barrier,))
+        p.start()
+        consumer_processes.append(p)
+
+    # Block untill all consumers are ready
+    logger.info("Waiting for consumer processes to initialize")
+    start_consuming_barrier.wait()
+
+    # Start producing messages
+    logger.info("Signaling producer processes to start producing")
+    start_producing_event.set()
+
+    # Wait for producers to finish
+    logger.info("Waiting for producer processes to finish")
+    for p in producer_processes:
+        p.join()
+        logger.info(f"Producer process {p.pid} exited with {p.exitcode}")
+
+    # Wait for consumers to finish
+    logger.info("Waiting for consumer processes to finish")
+    for p in consumer_processes:
+        p.join()
+        logger.info(f"Consumer process {p.pid} exited with {p.exitcode}")
+
+    # Merge consumer data
+    with open(args.results_consumer_log, 'w') as fp_w:
+        for i in range(len(consumer_args)):
+            f = args.results_consumer_log + "." + str(i)
+            logger.info(f"Merging consumer data from {f}")
+            with open(f, 'r') as fp_r:
+                for row in fp_r:
+                    fp_w.write(row)
+
+    # Merge producer data
+    with open(args.results_producer_log, 'w') as fp_w:
+        for i in range(len(producer_args)):
+            f = args.results_producer_log + "." + str(i)
+            logger.info(f"Merging producer data from {f}")
+            with open(f, 'r') as fp_r:
+                for row in fp_r:
+                    fp_w.write(row)
+
+
 def do_leader(args):
     logger = logging.getLogger("script-e2e.do_leader")
 
@@ -547,7 +640,7 @@ def do_follower(args):
 
 def main():
     parser = argparse.ArgumentParser(description='Helper tool for Kafka e2e latency test')
-    parser.add_argument('action', choices=['leader', 'follower', 'results'],
+    parser.add_argument('action', choices=['standalone', 'leader', 'follower', 'results'],
                         help='What shall we do?')
     parser.add_argument('--leader-host', default='localhost',
                         help='Where is our leader running? When started as a leader, we listen on *.')
@@ -625,7 +718,9 @@ def main():
 
     logger.debug(f"Args: {args}")
 
-    if args.action == 'leader':
+    if args.action == 'standalone':
+        do_standalone(args)
+    elif args.action == 'leader':
         do_leader(args)
     elif args.action == 'follower':
         do_follower(args)
