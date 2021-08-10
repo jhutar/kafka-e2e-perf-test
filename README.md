@@ -55,6 +55,7 @@ $ kafka-e2e-perf-test.py --help
 usage: kafka-e2e-perf-test.py [-h] [--leader-host LEADER_HOST]
                               [--leader-port LEADER_PORT]
                               [--leader-expect-offers LEADER_EXPECT_OFFERS]
+                              [--follower-offer-capacity FOLLOWER_OFFER_CAPACITY]
                               [--kafka-bootstrap-host KAFKA_BOOTSTRAP_HOST]
                               [--kafka-bootstrap-port KAFKA_BOOTSTRAP_PORT]
                               [--kafka-topic KAFKA_TOPIC]
@@ -62,12 +63,12 @@ usage: kafka-e2e-perf-test.py [-h] [--leader-host LEADER_HOST]
                               [--test-consumer-processes TEST_CONSUMER_PROCESSES]
                               [--test-produce-messages TEST_PRODUCE_MESSAGES]
                               [--producer-acks {0,1,all}] [-d]
-                              {leader,follower,results}
+                              {standalone,leader,follower,results}
 
 Helper tool for Kafka e2e latency test
 
 positional arguments:
-  {leader,follower,results}
+  {standalone,leader,follower,results}
                         What shall we do?
 
 optional arguments:
@@ -79,6 +80,9 @@ optional arguments:
                         What is the leader port?
   --leader-expect-offers LEADER_EXPECT_OFFERS
                         How many offers should we expect (how many folowers)?
+  --follower-offer-capacity FOLLOWER_OFFER_CAPACITY
+                        How many producers/consumers can this follower handle?
+                        Defaults to number of CPUs.
   --kafka-bootstrap-host KAFKA_BOOTSTRAP_HOST
                         What Kafka bootstrap server to connect to?
   --kafka-bootstrap-port KAFKA_BOOTSTRAP_PORT
