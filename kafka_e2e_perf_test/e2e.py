@@ -366,18 +366,20 @@ def do_leader(args):
     available_capacity = sum([i["available_capacity"] for i in followers.values()])
     assert available_capacity >= required_capacity, f"{args.leader_expect_offers} followers provided capacity {available_capacity} but we require {required_capacity}. Try with beefier followers please."
 
+    # Prepare ars we will hand to followers so they can configure producers/consumers
+    args_ = {k: v for k, v in vars(args).items() if k.startswith('kafka_') or k.startswith('producer_') or k.startswith('consumer_')}
+
     # Prepare arguments for processes (ALLOCATE_CAPACITY and then DONE_ALLOCATING_CAPACITY)
     for follower_id in itertools.cycle(followers.keys()):
         started_consumers = sum([i["started_consumers"] for i in followers.values()])
         if started_consumers < args.test_consumer_processes:
             logger.debug(f"Asking follower {follower_id} to start consumer")
-            connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "consumer", "args": vars(args)}, follower_id))
+            connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "consumer", "args": args_}, follower_id))
             followers[follower_id]["started_consumers"] += 1
 
         started_producers = sum([i["started_producers"] for i in followers.values()])
         if started_producers < args.test_producer_processes:
             logger.debug(f"Asking follower {follower_id} to start producer")
-            args_ = vars(args)
             args_.update({'payloads_count': payloads_count_per_producer})
             connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "producer", "args": args_}, follower_id))
             followers[follower_id]["started_producers"] += 1
