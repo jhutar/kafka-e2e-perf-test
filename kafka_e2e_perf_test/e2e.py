@@ -371,13 +371,15 @@ def do_leader(args):
         started_consumers = sum([i["started_consumers"] for i in followers.values()])
         if started_consumers < args.test_consumer_processes:
             logger.debug(f"Asking follower {follower_id} to start consumer")
-            connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "consumer", "args": {}}, follower_id))
+            connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "consumer", "args": vars(args)}, follower_id))
             followers[follower_id]["started_consumers"] += 1
 
         started_producers = sum([i["started_producers"] for i in followers.values()])
         if started_producers < args.test_producer_processes:
             logger.debug(f"Asking follower {follower_id} to start producer")
-            connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "producer", "args": {'payloads_count': payloads_count_per_producer}}, follower_id))
+            args_ = vars(args)
+            args_.update({'payloads_count': payloads_count_per_producer})
+            connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "producer", "args": args_}, follower_id))
             followers[follower_id]["started_producers"] += 1
 
         if started_consumers >= args.test_consumer_processes and started_producers >= args.test_producer_processes:
