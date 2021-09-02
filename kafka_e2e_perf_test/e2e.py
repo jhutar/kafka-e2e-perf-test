@@ -668,7 +668,7 @@ def main():
                         help='How many messages should we produce in total (all proceses together)?')
     parser.add_argument('--producer-acks', choices=['0', '1', 'all'], default='1',
                         help='What acks setting should producer use?')
-    parser.add_argument('--consumer-consumer-timeout-ms', default=15000,
+    parser.add_argument('--consumer-consumer-timeout-ms', type=int, default=15000,
                         help='How long to wait when no message is comming?')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='Show debug output')
