@@ -668,6 +668,8 @@ def main():
                         help='How many messages should we produce in total (all proceses together)?')
     parser.add_argument('--producer-acks', choices=['0', '1', 'all'], default='1',
                         help='What acks setting should producer use?')
+    parser.add_argument('--consumer-consumer-timeout-ms', default=15000,
+                        help='How long to wait when no message is comming?')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='Show debug output')
     args = parser.parse_args()
@@ -713,8 +715,6 @@ def main():
     args.consumer_heartbeat_interval_ms = 3000
     args.consumer_receive_buffer_bytes = None
     args.consumer_send_buffer_bytes = None
-    args.consumer_consumer_timeout_ms = float('inf')
-    args.consumer_consumer_timeout_ms = 15000   # quit if there are no new messages for 15s
 
     # Some extra defaults for results formatter
     args.results_producer_log = '/tmp/producer.log'
