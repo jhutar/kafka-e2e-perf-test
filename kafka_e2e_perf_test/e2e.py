@@ -720,6 +720,10 @@ def main():
     if args.producer_acks != 'all':
         args.producer_acks = int(args.producer_acks)
 
+    # Sanity check params the need checking
+    if args.test_produce_rate != 0:
+        assert args.test_produce_rate >= args.test_producer_processes, f"Producer rate {args.test_produce_rate} too low. Needs to be at least 1 for each of {args.test_producer_processes} producers"
+
     # Some extra defaults for producer
     args.producer_compression_type = None
     args.producer_batch_size = 16 * 1024
