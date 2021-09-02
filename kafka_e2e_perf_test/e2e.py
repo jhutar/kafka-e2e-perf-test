@@ -33,6 +33,18 @@ def my_isoformat(dateobj):
     return dateobj.strftime('%Y-%m-%dT%H:%M:%S.%f+00:00')
 
 
+def split_integer(num, parts):
+    """
+    Split number into given number of pars that are as equal as possible
+
+    https://stackoverflow.com/questions/55465884/how-to-divide-an-unknown-integer-into-a-given-number-of-even-parts-using-python
+    """
+    quotient, remainder = divmod(num, parts)
+    lower_elements = [quotient for i in range(parts - remainder)]
+    higher_elements = [quotient + 1 for j in range(remainder)]
+    return lower_elements + higher_elements
+
+
 def do_producer_process(args, store_here_file, start_producing_barrier, start_producing_event):
     def handle_send_success(record, metadata):
         now = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
@@ -58,10 +70,10 @@ def do_producer_process(args, store_here_file, start_producing_barrier, start_pr
         max_in_flight_requests_per_connection=args.producer_max_in_flight_requests_per_connection,
     )
 
-    logger.info(f"Generating {args.payloads_count} payloads")
+    logger.info(f"Generating {args.test_produce_messages} payloads")
     payload_random_part = ':' + ''.join(random.choices(string.ascii_lowercase, k=658))
     payloads = {}
-    for _ in range(args.payloads_count):
+    for _ in range(args.test_produce_messages):
         payload_uuid = str(uuid.uuid4())
         payload = ('UUID:' + payload_uuid + payload_random_part).encode('utf-8')
         payloads[payload_uuid] = payload
@@ -75,7 +87,9 @@ def do_producer_process(args, store_here_file, start_producing_barrier, start_pr
     logger.info("Waiting for order to produce")
     start_producing_event.wait()
 
-    logger.info("Producing generated payloads")
+    logger.info(f"Producing generated payloads with rate {args.test_produce_rate} messages/sec")
+    rate_current_sec = int(time.perf_counter())
+    rate_counter = 0
     for payload_uuid, payload in payloads.items():
         future = producer.send(
             args.kafka_topic,
@@ -89,6 +103,20 @@ def do_producer_process(args, store_here_file, start_producing_barrier, start_pr
         }
         future.add_callback(handle_send_success, metadata=future_metadata)
         future.add_errback(handle_send_error, metadata=future_metadata)
+
+        # If rate limitting is suposed to be active, do the counting
+        if args.test_produce_rate != 0:
+            rate_counter += 1
+            if rate_counter == args.test_produce_rate:
+                logger.debug(f"Rate limitting triggered at second {rate_current_sec} after sending {rate_counter} messages")
+                while int(time.perf_counter()) == rate_current_sec:
+                    time.sleep(0.01)
+                rate_current_sec = int(time.perf_counter())
+                rate_counter = 0
+            elif int(time.perf_counter()) != rate_current_sec:
+                logger.debug(f"Rate limitting lagging at second {rate_current_sec} after sending {rate_counter} messages")
+                rate_current_sec = int(time.perf_counter())
+                rate_counter = 0
 
     logger.info("Waiting for all messages to be published")
     # flush() and close() does not work for me, but this while loop
@@ -239,18 +267,18 @@ def do_standalone(args):
     consumer_args = []
     producer_args = []
 
-    payloads_count_per_producer = int(args.test_produce_messages / args.test_producer_processes)
-    if payloads_count_per_producer * args.test_producer_processes != args.test_produce_messages:
-        logger.warning("Not all messages will be produced as requested message number is not divisable by requested producer processes")
+    test_produce_messages_per_producer = split_integer(args.test_produce_messages, args.test_producer_processes)
+    test_produce_rate_per_producer = split_integer(args.test_produce_rate, args.test_producer_processes)
 
     # Prepare arguments for consumer and producer processes
-    for _ in range(args.test_consumer_processes):
+    for i in range(args.test_consumer_processes):
         args_this = copy.deepcopy(args)
         consumer_args.append((args_this, args.results_consumer_log + "." + str(len(consumer_args))))
 
-    for _ in range(args.test_producer_processes):
+    for i in range(args.test_producer_processes):
         args_this = copy.deepcopy(args)
-        args_this.payloads_count = payloads_count_per_producer
+        args_this.test_produce_messages = test_produce_messages_per_producer[i]
+        args_this.test_produce_rate = test_produce_rate_per_producer[i]
         producer_args.append((args_this, args.results_producer_log + "." + str(len(producer_args))))
 
     # This barrier serves for block main thread untill all producer
@@ -331,9 +359,8 @@ def do_leader(args):
 
     connection = kafka_e2e_perf_test.zmqrpc.Server("*", args.leader_port)
 
-    payloads_count_per_producer = int(args.test_produce_messages / args.test_producer_processes)
-    if payloads_count_per_producer * args.test_producer_processes != args.test_produce_messages:
-        logger.warning("Not all messages will be produced as requested message number is not divisable by requested producer processes")
+    test_produce_messages_per_producer = split_integer(args.test_produce_messages, args.test_producer_processes)
+    test_produce_rate_per_producer = split_integer(args.test_produce_rate, args.test_producer_processes)
 
     required_capacity = args.test_producer_processes + args.test_consumer_processes
     followers = {}
@@ -349,10 +376,10 @@ def do_leader(args):
 
         followers[follower_id] = {
             "available_capacity": follower_msg.data["capacity"],
-            "started_consumers": 0,
-            "started_producers": 0,
-            "initiated_consumers": 0,
-            "initiated_producers": 0,
+            "consumers_started": 0,
+            "producers_started": 0,
+            "consumers_initiated": 0,
+            "producers_initiated": 0,
             "consumers_finished": 0,
             "producers_finished": 0,
             "consumers_data_transfered": 0,
@@ -366,33 +393,34 @@ def do_leader(args):
     available_capacity = sum([i["available_capacity"] for i in followers.values()])
     assert available_capacity >= required_capacity, f"{args.leader_expect_offers} followers provided capacity {available_capacity} but we require {required_capacity}. Try with beefier followers please."
 
-    # Prepare ars we will hand to followers so they can configure producers/consumers
+    # Prepare args we will hand to followers so they can configure producers/consumers
     args_ = {k: v for k, v in vars(args).items() if k.startswith('kafka_') or k.startswith('producer_') or k.startswith('consumer_')}
 
     # Prepare arguments for processes (ALLOCATE_CAPACITY and then DONE_ALLOCATING_CAPACITY)
     for follower_id in itertools.cycle(followers.keys()):
-        started_consumers = sum([i["started_consumers"] for i in followers.values()])
-        if started_consumers < args.test_consumer_processes:
+        consumers_started = sum([i["consumers_started"] for i in followers.values()])
+        if consumers_started < args.test_consumer_processes:
             logger.debug(f"Asking follower {follower_id} to start consumer")
             connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "consumer", "args": args_}, follower_id))
-            followers[follower_id]["started_consumers"] += 1
+            followers[follower_id]["consumers_started"] += 1
 
-        started_producers = sum([i["started_producers"] for i in followers.values()])
-        if started_producers < args.test_producer_processes:
+        producers_started = sum([i["producers_started"] for i in followers.values()])
+        if producers_started < args.test_producer_processes:
             logger.debug(f"Asking follower {follower_id} to start producer")
-            args_.update({'payloads_count': payloads_count_per_producer})
+            args_['test_produce_messages'] = test_produce_messages_per_producer[producers_started]
+            args_['test_produce_rate'] = test_produce_rate_per_producer[producers_started]
             connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("ALLOCATE_CAPACITY", {"workload": "producer", "args": args_}, follower_id))
-            followers[follower_id]["started_producers"] += 1
+            followers[follower_id]["producers_started"] += 1
 
-        if started_consumers >= args.test_consumer_processes and started_producers >= args.test_producer_processes:
-            logger.info(f"Started {started_consumers} consumers and {started_producers} producers")
+        if consumers_started >= args.test_consumer_processes and producers_started >= args.test_producer_processes:
+            logger.info(f"Started {consumers_started} consumers and {producers_started} producers")
             for follower_id in followers.keys():
                 connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("DONE_ALLOCATING_CAPACITY", None, follower_id))
             break
 
     # Now make followers to start producers (START_PRODUCERS)
     for follower_id in followers.keys():
-        if followers[follower_id]["started_producers"] > 0:
+        if followers[follower_id]["producers_started"] > 0:
             connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("START_PRODUCERS", None, follower_id))
 
     # Wait for producers being initiated (PRODUCERS_INITIATED)
@@ -403,32 +431,32 @@ def do_leader(args):
             logger.debug(f"Ignoring this {follower_msg.type} message")
             continue
 
-        followers[follower_id]["initiated_producers"] += follower_msg.data['initiated']
+        followers[follower_id]["producers_initiated"] += follower_msg.data['initiated']
 
-        initiated_producers = sum([i["initiated_producers"] for i in followers.values()])
-        if initiated_producers >= args.test_producer_processes:
-            logger.info(f"Initiated {initiated_producers} producers")
+        producers_initiated = sum([i["producers_initiated"] for i in followers.values()])
+        if producers_initiated >= args.test_producer_processes:
+            logger.info(f"Initiated {producers_initiated} producers")
             break
 
     # Trigger consumers start (START_CONSUMERS)
     for follower_id in followers.keys():
-        if followers[follower_id]["started_consumers"] > 0:
+        if followers[follower_id]["consumers_started"] > 0:
             connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("START_CONSUMERS", None, follower_id))
 
     # Wait for consumers being initiated (CONSUMERS_INITIATED)
     while True:
         follower_id, follower_msg = connection.recv_from_client()
         logger.debug(f"Follower {follower_id} message {follower_msg.type}: {follower_msg.data}")
-        followers[follower_id]["initiated_consumers"] += follower_msg.data['initiated']
+        followers[follower_id]["consumers_initiated"] += follower_msg.data['initiated']
 
-        initiated_consumers = sum([i["initiated_consumers"] for i in followers.values()])
-        if initiated_consumers >= args.test_consumer_processes:
-            logger.info(f"Initiated {initiated_consumers} consumers")
+        consumers_initiated = sum([i["consumers_initiated"] for i in followers.values()])
+        if consumers_initiated >= args.test_consumer_processes:
+            logger.info(f"Initiated {consumers_initiated} consumers")
             break
 
     # Trigger producing messages (START_PRODUCING)
     for follower_id in followers.keys():
-        if followers[follower_id]["started_producers"] > 0:
+        if followers[follower_id]["producers_started"] > 0:
             logger.debug(f"Triggering message producing on {follower_id}")
             connection.send_to_client(kafka_e2e_perf_test.zmqrpc.Message("START_PRODUCING", None, follower_id))
 
@@ -666,6 +694,8 @@ def main():
                         help='How many consumer processes should we start?')
     parser.add_argument('--test-produce-messages', type=int, default=100,
                         help='How many messages should we produce in total (all proceses together)?')
+    parser.add_argument('--test-produce-rate', type=int, default=0,
+                        help='How many meessages should we produce per second in total (all processes together, use 0 for max)')
     parser.add_argument('--producer-acks', choices=['0', '1', 'all'], default='1',
                         help='What acks setting should producer use?')
     parser.add_argument('--consumer-consumer-timeout-ms', type=int, default=15000,
