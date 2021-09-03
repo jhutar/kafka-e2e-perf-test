@@ -120,5 +120,5 @@ the results with `kafka-e2e-perf-test.py results` as it have complete data.
 Note the results are very sensitive for system time differences on all
 the followers. If the time differs and a message is produced by a producer
 on follower A and consumed by consumer on follower B, time can even be negative.
-I'm using `chrony` service and `chronyc makestep` command before the test on
-the followers to avoid it.
+I'm using `chrony` service: settig preffered reliable NTP server and then
+runing `chronyc makestep` command before the test on followers to avoid it.
