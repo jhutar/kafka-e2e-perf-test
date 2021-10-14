@@ -52,23 +52,30 @@ def do_producer_process(args, store_here_file, start_producing_barrier, start_pr
 
     def handle_send_error(excp, metadata):
         now = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
-        store_here_pointer.write(f"ERROR {metadata['uuid']} {my_isoformat(metadata['sent'])} {my_isoformat(now)}\n")
+        store_here_pointer.write(f"ERROR {metadata['uuid']} {my_isoformat(metadata['sent'])} {my_isoformat(now)} {excp}\n")
 
     logger = logging.getLogger('script-e2e.do_producer_process')
 
-    logger.info("Starting producer")
-    producer = KafkaProducer(
-        bootstrap_servers=f'{args.kafka_bootstrap_host}:{args.kafka_bootstrap_port}',
-        acks=args.producer_acks,
-        compression_type=args.producer_compression_type,
-        batch_size=args.producer_batch_size,
-        linger_ms=args.producer_linger_ms,
-        buffer_memory=args.producer_buffer_memory,
-        max_block_ms=args.producer_max_block_ms,
-        max_request_size=args.producer_max_request_size,
-        send_buffer_bytes=args.producer_send_buffer_bytes,
-        max_in_flight_requests_per_connection=args.producer_max_in_flight_requests_per_connection,
-    )
+    kafka_args = {
+        'bootstrap_servers': f'{args.kafka_bootstrap_host}:{args.kafka_bootstrap_port}',
+        'security_protocol': args.kafka_security_protocol,
+        'acks': args.producer_acks,
+        'compression_type': args.producer_compression_type,
+        'batch_size': args.producer_batch_size,
+        'linger_ms': args.producer_linger_ms,
+        'buffer_memory': args.producer_buffer_memory,
+        'max_block_ms': args.producer_max_block_ms,
+        'max_request_size': args.producer_max_request_size,
+        'request_timeout_ms': args.producer_request_timeout_ms,
+        'send_buffer_bytes': args.producer_send_buffer_bytes,
+        'max_in_flight_requests_per_connection': args.producer_max_in_flight_requests_per_connection,
+    }
+    if args.kafka_security_protocol == 'SASL_SSL':
+        kafka_args['sasl_plain_username'] = args.kafka_sasl_plain_username
+        kafka_args['sasl_plain_password'] = args.kafka_sasl_plain_password
+        kafka_args['sasl_mechanism'] = args.kafka_sasl_mechanism
+
+    producer = KafkaProducer(**kafka_args)
 
     logger.info(f"Generating {args.test_produce_messages} payloads")
     payload_random_part = ':' + ''.join(random.choices(string.ascii_lowercase, k=658))
@@ -136,25 +143,31 @@ def do_producer_process(args, store_here_file, start_producing_barrier, start_pr
 def do_consumer_process(args, store_here_file, start_consuming_barrier):
     logger = logging.getLogger('script-e2e.do_consumer_process')
 
-    consumer = KafkaConsumer(
-        args.kafka_topic,
-        bootstrap_servers=f'{args.kafka_bootstrap_host}:{args.kafka_bootstrap_port}',
-        group_id=args.consumer_group_id,
-        fetch_min_bytes=args.consumer_fetch_min_bytes,
-        fetch_max_wait_ms=args.consumer_fetch_max_wait_ms,
-        fetch_max_bytes=args.consumer_fetch_max_bytes,
-        max_partition_fetch_bytes=args.consumer_max_partition_fetch_bytes,
-        max_in_flight_requests_per_connection=args.consumer_max_in_flight_requests_per_connection,
-        enable_auto_commit=args.consumer_enable_auto_commit,
-        auto_commit_interval_ms=args.consumer_auto_commit_interval_ms,
-        check_crcs=args.consumer_check_crcs,
-        max_poll_records=args.consumer_max_poll_records,
-        max_poll_interval_ms=args.consumer_max_poll_interval_ms,
-        heartbeat_interval_ms=args.consumer_heartbeat_interval_ms,
-        receive_buffer_bytes=args.consumer_receive_buffer_bytes,
-        send_buffer_bytes=args.consumer_send_buffer_bytes,
-        consumer_timeout_ms=args.consumer_consumer_timeout_ms,
-    )
+    kafka_args = {
+        'bootstrap_servers': f'{args.kafka_bootstrap_host}:{args.kafka_bootstrap_port}',
+        'security_protocol': args.kafka_security_protocol,
+        'group_id': args.consumer_group_id,
+        'fetch_min_bytes': args.consumer_fetch_min_bytes,
+        'fetch_max_wait_ms': args.consumer_fetch_max_wait_ms,
+        'fetch_max_bytes': args.consumer_fetch_max_bytes,
+        'max_partition_fetch_bytes': args.consumer_max_partition_fetch_bytes,
+        'max_in_flight_requests_per_connection': args.consumer_max_in_flight_requests_per_connection,
+        'enable_auto_commit': args.consumer_enable_auto_commit,
+        'auto_commit_interval_ms': args.consumer_auto_commit_interval_ms,
+        'check_crcs': args.consumer_check_crcs,
+        'max_poll_records': args.consumer_max_poll_records,
+        'max_poll_interval_ms': args.consumer_max_poll_interval_ms,
+        'heartbeat_interval_ms': args.consumer_heartbeat_interval_ms,
+        'receive_buffer_bytes': args.consumer_receive_buffer_bytes,
+        'send_buffer_bytes': args.consumer_send_buffer_bytes,
+        'consumer_timeout_ms': args.consumer_consumer_timeout_ms,
+    }
+    if args.kafka_security_protocol == 'SASL_SSL':
+        kafka_args['sasl_plain_username'] = args.kafka_sasl_plain_username
+        kafka_args['sasl_plain_password'] = args.kafka_sasl_plain_password
+        kafka_args['sasl_mechanism'] = args.kafka_sasl_mechanism
+
+    consumer = KafkaConsumer(args.kafka_topic, **kafka_args)
 
     logger.info(f"Opening logging file {store_here_file}")
     store_here_pointer = open(store_here_file, 'w')
@@ -686,6 +699,16 @@ def main():
                         help='What Kafka bootstrap server to connect to?')
     parser.add_argument('--kafka-bootstrap-port', default='9092',
                         help='What Kafka bootstrap server port to connect to?')
+    parser.add_argument('--kafka-security-protocol', default='PLAINTEXT',
+                        choices=['PLAINTEXT', 'SSL', 'SASL_PLAINTEXT', 'SASL_SSL'],
+                        help='Protocol used to communicate with brokers.')
+    parser.add_argument('--kafka-sasl-mechanism',
+                        choices=['PLAIN', 'GSSAPI', 'OAUTHBEARER', 'SCRAM-SHA-256', 'SCRAM-SHA-512'],
+                        help='Authentication mechanism when security_protocol is configured for SASL_PLAINTEXT or SASL_SSL.')
+    parser.add_argument('--kafka-sasl-plain-username',
+                        help='Username for sasl PLAIN and SCRAM mechamism.')
+    parser.add_argument('--kafka-sasl-plain-password',
+                        help='Password for sasl PLAIN and SCRAM mechamism.')
     parser.add_argument('--kafka-topic', default='jhutar-test',
                         help='What topic should we produce to and consume from?')
     parser.add_argument('--test-producer-processes', type=int, default=1,
@@ -731,6 +754,7 @@ def main():
     args.producer_buffer_memory = 32 * 1024 * 1024
     args.producer_max_block_ms = 60000
     args.producer_max_request_size = 1024 * 1024
+    args.producer_request_timeout_ms = 30000
     args.producer_send_buffer_bytes = None
     args.producer_max_in_flight_requests_per_connection = 5
 
