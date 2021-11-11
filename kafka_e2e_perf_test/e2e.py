@@ -16,6 +16,8 @@ import uuid
 from kafka import KafkaConsumer
 from kafka import KafkaProducer
 
+import ssl
+
 import kafka_e2e_perf_test.zmqrpc
 
 import opl.data
@@ -44,6 +46,12 @@ def split_integer(num, parts):
     higher_elements = [quotient + 1 for j in range(remainder)]
     return lower_elements + higher_elements
 
+
+def get_ssl_context_no_verify():
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
 
 def do_producer_process(args, store_here_file, start_producing_barrier, start_producing_event):
     def handle_send_success(record, metadata):
@@ -74,6 +82,8 @@ def do_producer_process(args, store_here_file, start_producing_barrier, start_pr
         kafka_args['sasl_plain_username'] = args.kafka_sasl_plain_username
         kafka_args['sasl_plain_password'] = args.kafka_sasl_plain_password
         kafka_args['sasl_mechanism'] = args.kafka_sasl_mechanism
+    if args.kafka_ssl_no_verify:
+        kafka_args['ssl_context'] = get_ssl_context_no_verify()
 
     producer = KafkaProducer(**kafka_args)
 
@@ -166,6 +176,8 @@ def do_consumer_process(args, store_here_file, start_consuming_barrier):
         kafka_args['sasl_plain_username'] = args.kafka_sasl_plain_username
         kafka_args['sasl_plain_password'] = args.kafka_sasl_plain_password
         kafka_args['sasl_mechanism'] = args.kafka_sasl_mechanism
+    if args.kafka_ssl_no_verify:
+        kafka_args['ssl_context'] = get_ssl_context_no_verify()
 
     consumer = KafkaConsumer(args.kafka_topic, **kafka_args)
 
@@ -709,6 +721,8 @@ def main():
                         help='Username for sasl PLAIN and SCRAM mechamism.')
     parser.add_argument('--kafka-sasl-plain-password',
                         help='Password for sasl PLAIN and SCRAM mechamism.')
+    parser.add_argument('--kafka-ssl-no-verify', action='store_true',
+                        help='Do not verify SSL certs and hostnames along he way')
     parser.add_argument('--kafka-topic', default='jhutar-test',
                         help='What topic should we produce to and consume from?')
     parser.add_argument('--test-producer-processes', type=int, default=1,
